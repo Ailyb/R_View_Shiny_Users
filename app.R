@@ -9,6 +9,8 @@ jscode <- 'Shiny.addCustomMessageHandler("testmessage",
                               }
 );'
 
+active_sessions <- reactiveValues(sessions = list())
+
 # Shared data frame to store user inputs across sessions
 user_data <- reactiveValues(data = data.frame(
   SessionID = character(),
@@ -46,6 +48,14 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   # Generate a unique session ID
   session_id <- session$token
+  
+  
+  observe({
+    # Add the current session to active sessions
+    session_id <- session$ns(paste0(session$token))
+    active_sessions$sessions[[session_id]] <- session
+    
+  })
   
   # Reactive values to store current user's inputs and message
   current_user <- reactiveValues(
@@ -86,17 +96,17 @@ server <- function(input, output, session) {
   # Render the DT table
   output$user_table <- renderDT({
     datatable(
-      user_data$data,
-      selection = 'multiple',
-      options = list(pageLength = 10)
+      user_data$data
+      # ,selection = 'multiple',
+      # options = list(pageLength = 10)
     )
   })
   
   # Remove user from table when session ends
-  onSessionEnded(function() {
-    user_data$data <- user_data$data %>%
-      filter(SessionID != session_id)
-  })
+  # onSessionEnded(function() {
+  #   user_data$data <- user_data$data %>%
+  #     filter(SessionID != session_id)
+  # })
   
   # Display received message
   output$message_display <- renderUI({
@@ -110,24 +120,21 @@ server <- function(input, output, session) {
   
   
   observeEvent(input$send_message, {
-    # End selected session
-    if ( any(!is.null( input$session_table_rows_selected ) )) {
-      
-      
-      if (is.null(input$message_to_send) | input$message_to_send == '' ) {
-        
+
+    if ( any(!is.null( input$user_table_rows_selected ) )) {
+   
+      if (is.null(input$message_text) | input$message_text == '' ) {
+    
         showModal(modalDialog('Please add a message', 'Please type a message before trying to send one.'))
         
       } else {
-        
-        
-        if (any(names(active_sessions$sessions)[input$session_table_rows_selected] %in% names(active_sessions$sessions))) {
+
+        if (user_data$data$SessionID[input$user_table_rows_selected] %in% user_data$data$SessionID) {
           
           for (sel_row in input$user_table_rows_selected )  {
-            
-            session_message <-user_data$data$SessionID[sel_row]
-            
-            
+          
+            session_message <- active_sessions$sessions[[user_data$data$SessionID[sel_row]]]
+       
             session_message$sendCustomMessage(type = 'testmessage', message = paste0(input$message_text) )
             
           }
@@ -142,45 +149,22 @@ server <- function(input, output, session) {
     
   })
   
-  # Send message to selected users
-  # observeEvent(input$send_message, {
-  #   selected_rows <- input$user_table_rows_selected
-  #   message_content <- input$message_text
-  #   if (length(selected_rows) > 0 && nchar(trimws(message_content)) > 0) {
-  #     selected_sessions <- user_data$data$SessionID[selected_rows]
-  #     if (session_id %in% selected_sessions) {
-  #       current_user$message <- message_content
-  #       # Auto-clear message after 5 seconds
-  #       later::later(function() {
-  #         current_user$message <- NULL
-  #       }, 5)
-  #     }
-  #     showNotification(
-  #       paste("Message sent to session(s):", paste(selected_sessions, collapse = ", ")),
-  #       type = "message"
-  #     )
-  #   } else {
-  #     showNotification(
-  #       if (nchar(trimws(message_content)) == 0) "Please enter a message." else "Please select at least one user.",
-  #       type = "warning"
-  #     )
-  #   }
-  # })
-  
+
   
   observeEvent(input$end_session, {
     # End selected session
+
     if ( any(!is.null( input$user_table_rows_selected ) )) {
       
-      if (names(active_sessions$sessions)[input$user_table_rows_selected] %in% names(active_sessions$sessions)) {
+      if (user_data$data$SessionID[input$user_table_rows_selected] %in% user_data$data$SessionID) {
         
         for (sel_row in input$user_table_rows_selected )  {
           
-          session_to_end <- user_data$data$SessionID[sel_row]
+          session_to_end <- active_sessions$sessions[[user_data$data$SessionID[sel_row]]]
           
           session$sendCustomMessage(type = "end_session", message = TRUE)
           
-          # output$status <- renderText(paste("Session", input$session_table_rows_selected, "ended."))
+          # output$status <- renderText(paste("Session", input$user_table_rows_selected, "ended."))
           
           session_to_end$close()
         }
@@ -195,21 +179,16 @@ server <- function(input, output, session) {
     
   })
   
-  # End session for selected users
-  # observeEvent(input$end_session, {
-  #   selected_rows <- input$user_table_rows_selected
-  #   if (length(selected_rows) > 0) {
-  #     selected_sessions <- user_data$data$SessionID[selected_rows]
-  #     user_data$data <- user_data$data %>%
-  #       filter(!SessionID %in% selected_sessions)
-  #     showNotification(
-  #       paste("Session(s) ended:", paste(selected_sessions, collapse = ", ")),
-  #       type = "message"
-  #     )
-  #   } else {
-  #     showNotification("Please select at least one user.", type = "warning")
-  #   }
+  
+  # session$onSessionEnded(function() {
+  #   
+  #   isolate({
+  #     user_data$data$SessionID[[session_id]] <- NULL
+  #   })
+  #   
   # })
+  
+  
 }
 
 shinyApp(ui, server)
